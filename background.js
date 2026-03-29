@@ -64,11 +64,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     getBookmarks().then((bookmarks) => {
       sendResponse({ results: filterBookmarks(bookmarks, message.query) });
     });
-    return true; // keep message channel open for async response
+    return true;
+  }
+
+  if (message.type === 'GET_FOLDERS') {
+    (async () => {
+      if (message.parentId) {
+        const children = await chrome.bookmarks.getChildren(message.parentId);
+        sendResponse({ folders: children.filter(n => !n.url).map(f => ({ id: f.id, title: f.title })) });
+      } else {
+        const tree = await chrome.bookmarks.getTree();
+        const topLevel = tree[0].children
+          .filter(n => !n.url)
+          .map(f => ({ id: f.id, title: f.title }));
+        sendResponse({ folders: topLevel });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'CREATE_FOLDER') {
+    (async () => {
+      const folder = await chrome.bookmarks.create({ parentId: message.parentId, title: message.title });
+      sendResponse({ id: folder.id, title: folder.title });
+    })();
+    return true;
   }
 
   if (message.type === 'OPEN') {
     chrome.tabs.update({ url: message.url }).catch(() => {});
+  }
+
+  if (message.type === 'SAVE_BOOKMARK') {
+    (async () => {
+      await chrome.bookmarks.create({ parentId: message.parentId, title: message.title, url: message.url });
+      cachedBookmarks = null;
+    })();
   }
 
   if (message.type === 'TAG') {

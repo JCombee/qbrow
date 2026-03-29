@@ -111,6 +111,28 @@
   text-overflow: ellipsis;
 }
 
+.qbrow-item-path {
+  font-size: 12px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #6c7086;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qbrow-save-item .qbrow-item-title {
+  color: #a6e3a1;
+}
+
+.qbrow-folder-item .qbrow-item-title::after {
+  content: '  ▸';
+  color: #585b70;
+}
+
+.qbrow-create-item .qbrow-item-title {
+  color: #89b4fa;
+}
+
 .qbrow-item-tags {
   display: flex;
   flex-wrap: wrap;

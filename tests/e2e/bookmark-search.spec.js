@@ -365,4 +365,185 @@ test.describe('qbrow bookmark palette', () => {
 
     await closePalette();
   });
+
+  // ─── /save command ─────────────────────────────────────────────────────────────
+
+  async function pressEnterInPalette() {
+    await page.evaluate(() => {
+      document.getElementById('qbrow-host')?.shadowRoot
+        ?.getElementById('qbrow-input')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+  }
+
+  async function getFolderItems() {
+    return page.evaluate(() => {
+      const host = document.getElementById('qbrow-host');
+      if (!host) return [];
+      return Array.from(host.shadowRoot.querySelectorAll('.qbrow-item')).map(el => ({
+        kind: el.dataset.kind,
+        title: el.querySelector('.qbrow-item-title')?.textContent,
+        path: el.querySelector('.qbrow-item-path')?.textContent ?? null,
+      }));
+    });
+  }
+
+  test('/save shows folder navigation after entering bookmark name', async () => {
+    await page.goto('https://example.com');
+    await openPalette();
+
+    await page.locator('#qbrow-input').click();
+    await page.keyboard.type('/save My Bookmark');
+    await pressEnterInPalette();
+
+    // Should transition to save-location mode with folder list visible
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
+    }, { timeout: 3000 });
+
+    const items = await getFolderItems();
+    // At root: only folder items (no "Save here"), all should be kind=folder
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every(i => i.kind === 'folder')).toBe(true);
+
+    // Placeholder should indicate folder navigation
+    const placeholder = await page.evaluate(() =>
+      document.getElementById('qbrow-host')?.shadowRoot?.getElementById('qbrow-input')?.placeholder,
+    );
+    expect(placeholder).toBe('Navigate to folder…');
+
+    await closePalette();
+  });
+
+  test('/save navigates into a folder and shows Save here', async () => {
+    await page.goto('https://example.com');
+    await openPalette();
+
+    await page.locator('#qbrow-input').click();
+    await page.keyboard.type('/save My Bookmark');
+    await pressEnterInPalette();
+
+    // Wait for root folders
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
+    }, { timeout: 3000 });
+
+    // Navigate into the first folder (e.g. Bookmarks Bar)
+    await pressEnterInPalette();
+
+    // Now "Save here" should be the first item
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      const first = host?.shadowRoot?.querySelector('.qbrow-item');
+      return first?.dataset?.kind === 'save';
+    }, { timeout: 3000 });
+
+    const items = await getFolderItems();
+    expect(items[0].kind).toBe('save');
+    expect(items[0].title).toBe('Save here');
+
+    await closePalette();
+  });
+
+  test('/save creates a new folder when name has no match', async () => {
+    const uniqueName = '__qbrow_newfolder_' + Date.now() + '__';
+
+    await page.goto('https://example.com');
+    await openPalette();
+
+    await page.locator('#qbrow-input').click();
+    await page.keyboard.type('/save Test Page');
+    await pressEnterInPalette();
+
+    // Wait for root folders and navigate into the first one
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
+    }, { timeout: 3000 });
+    await pressEnterInPalette();
+
+    // Wait until inside a folder (Save here visible)
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return host?.shadowRoot?.querySelector('.qbrow-item')?.dataset?.kind === 'save';
+    }, { timeout: 3000 });
+
+    // Type a unique folder name that won't exist
+    await page.locator('#qbrow-input').click();
+    await page.keyboard.type(uniqueName);
+
+    // "Create" item should appear
+    await page.waitForFunction((name) => {
+      const host = document.getElementById('qbrow-host');
+      const items = host?.shadowRoot?.querySelectorAll('.qbrow-item');
+      return Array.from(items ?? []).some(el =>
+        el.dataset.kind === 'create' && el.querySelector('.qbrow-item-title')?.textContent?.includes(name),
+      );
+    }, uniqueName, { timeout: 3000 });
+
+    const items = await getFolderItems();
+    const createItem = items.find(i => i.kind === 'create');
+    expect(createItem).toBeTruthy();
+    expect(createItem.title).toContain(uniqueName);
+
+    // Select the Create item — navigates into the new folder
+    await pressEnterInPalette();
+
+    // Should now be inside the new folder with "Save here" visible
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return host?.shadowRoot?.querySelector('.qbrow-item')?.dataset?.kind === 'save';
+    }, { timeout: 3000 });
+
+    // Clean up the created folder
+    await sw.evaluate(async (name) => {
+      const results = await chrome.bookmarks.search(name);
+      for (const b of results) await chrome.bookmarks.remove(b.id);
+    }, uniqueName);
+
+    await closePalette();
+  });
+
+  test('/save saves the bookmark and it appears in search results', async () => {
+    const title = '__qbrow_saved_' + Date.now() + '__';
+
+    await page.goto('https://example.com');
+    await openPalette();
+
+    await page.locator('#qbrow-input').click();
+    await page.keyboard.type('/save ' + title);
+    await pressEnterInPalette();
+
+    // Navigate into the first top-level folder
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
+    }, { timeout: 3000 });
+    await pressEnterInPalette();
+
+    // Wait for "Save here" and select it
+    await page.waitForFunction(() => {
+      const host = document.getElementById('qbrow-host');
+      return host?.shadowRoot?.querySelector('.qbrow-item')?.dataset?.kind === 'save';
+    }, { timeout: 3000 });
+    await pressEnterInPalette();
+
+    // Palette should close after saving
+    await expect(page.locator('#qbrow-host')).not.toBeAttached();
+
+    // Verify bookmark was actually created
+    const found = await sw.evaluate(async (t) => {
+      const results = await chrome.bookmarks.search(t);
+      return results.length > 0;
+    }, title);
+    expect(found).toBe(true);
+
+    // Clean up
+    await sw.evaluate(async (t) => {
+      const results = await chrome.bookmarks.search(t);
+      for (const b of results) await chrome.bookmarks.remove(b.id);
+    }, title);
+  });
 });

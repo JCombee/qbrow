@@ -13,6 +13,7 @@ Built as a plain-JavaScript Manifest V3 extension — no framework, no build ste
 ## Features
 
 - **Instant bookmark search** — fuzzy substring match on title, URL, and tags
+- **Save the current page** with `/save` — navigate your folder tree and save in one flow
 - **Tag bookmarks** with `/tag` — assign custom labels and search by them later
 - **Keyboard-first** — arrow keys to navigate, Enter to open, Escape to close
 - **Shadow DOM isolation** — the palette never conflicts with the host page's styles
@@ -49,6 +50,16 @@ Built as a plain-JavaScript Manifest V3 extension — no framework, no build ste
 | Navigate results | `↑` / `↓` arrow keys           |
 | Open selection   | `Enter` or click               |
 | Close palette    | `Esc` or click outside         |
+
+### `/save` command
+
+Save the current page as a bookmark and choose exactly where it goes:
+
+1. Type `/save <name>` and press `Enter`
+2. Navigate your bookmark folder tree — type to filter, `Enter` to step into a folder
+3. Select **Save here** to save at the current location
+
+If a folder doesn't exist yet, type its name and select **Create "Name"** — the folder is created and you step into it automatically. `Escape` steps back up the tree one level at a time.
 
 ### `/tag` command
 
