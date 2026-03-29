@@ -48,14 +48,50 @@ chrome.bookmarks.onRemoved.addListener(() => { cachedBookmarks = null; });
 chrome.bookmarks.onChanged.addListener(() => { cachedBookmarks = null; });
 chrome.bookmarks.onMoved.addListener(() => { cachedBookmarks = null; });
 
+// Returns true for URLs where content scripts can never be injected
+// (chrome://, brave://, about:, extension pages, etc.)
+// Regular https:// pages where injection happens to be blocked (e.g. Web Store)
+// are NOT privileged — we simply can't open the palette there.
+function isPrivilegedUrl(url) {
+  if (!url) return false;
+  try {
+    return !['http:', 'https:', 'file:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 // Toggle palette via keyboard shortcut
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== 'toggle-palette') return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
-  chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' }).catch(() => {
-    // Content script not yet injected on this page (e.g. chrome:// pages) — ignore
-  });
+
+  // 1. Happy path — content script already running
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' });
+    return;
+  } catch { /* not injected yet */ }
+
+  // 2. Regular page that loaded before the extension — inject on demand
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' });
+    return;
+  } catch { /* privileged URL (new tab, chrome://, etc.) */ }
+
+  // 3. Injection was blocked.
+  //    - Privileged schemes (chrome://, brave://, about:): navigate the current tab to the
+  //      landing page — there is nothing useful on that tab to preserve.
+  //    - Regular https:// pages where injection is blocked (e.g. Chrome Web Store): open a
+  //      new tab so the original page is not replaced.
+  const landingUrl = chrome.runtime.getURL('palette.html')
+    + `?mode=landing&pageUrl=${encodeURIComponent(tab.url ?? '')}`;
+  if (isPrivilegedUrl(tab.url)) {
+    chrome.tabs.update(tab.id, { url: landingUrl });
+  } else {
+    chrome.tabs.create({ url: landingUrl });
+  }
 });
 
 // Handle messages from content script

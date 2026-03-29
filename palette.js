@@ -1,5 +1,9 @@
 (() => {
-  let pageUrl = '';
+  // Landing mode: palette navigated to as a full-page tab (e.g. from a new tab page)
+  const _params = new URLSearchParams(location.search);
+  const landing = _params.get('mode') === 'landing';
+
+  let pageUrl = landing ? (_params.get('pageUrl') ?? '') : '';
   let mode = 'search'; // 'search' | 'tag-pick' | 'tag-name' | 'tag-remove-select' | 'save-location'
   let tagAction = 'add'; // 'add' | 'remove'
   let tagTarget = null; // { id, title, tags? }
@@ -18,16 +22,23 @@
   const badge = document.getElementById('qbrow-badge');
   const overlay = document.getElementById('qbrow-overlay');
 
-  window.parent.postMessage({ type: 'QBROW_READY' }, '*');
-
-  window.addEventListener('message', (e) => {
-    if (e.data?.type === 'QBROW_INIT') {
-      pageUrl = e.data.url ?? '';
-    }
-  });
+  if (landing) {
+    // Full-page tab — solid background, no dim overlay needed
+    document.body.style.background = '#11111b';
+    overlay.style.background = 'transparent';
+  } else {
+    // Inside content-script iframe — handshake with parent page
+    window.parent.postMessage({ type: 'QBROW_READY' }, '*');
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === 'QBROW_INIT') pageUrl = e.data.url ?? '';
+    });
+  }
 
   function close() {
-    window.parent.postMessage({ type: 'QBROW_CLOSE' }, '*');
+    if (!landing) {
+      window.parent.postMessage({ type: 'QBROW_CLOSE' }, '*');
+    }
+    // In landing mode there is no host page to return to — do nothing
   }
 
   function setBadge(text) {

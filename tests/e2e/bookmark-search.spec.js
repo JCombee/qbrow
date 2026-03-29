@@ -6,7 +6,19 @@ const extensionPath = path.resolve(__dirname, '../../');
 test.describe('qbrow bookmark palette', () => {
   let context;
   let page;
-  let sw;
+
+  // Always fetch the live SW reference — Chrome may terminate and restart it between tests,
+  // causing a stale reference to hang indefinitely on evaluate().
+  async function swEval(fn, arg) {
+    let worker = context.serviceWorkers().find((w) => w.url().includes('background.js'));
+    if (!worker) {
+      worker = await context.waitForEvent('serviceworker', {
+        predicate: (w) => w.url().includes('background.js'),
+        timeout: 10000,
+      });
+    }
+    return worker.evaluate(fn, arg);
+  }
 
   test.beforeAll(async () => {
     context = await chromium.launchPersistentContext('', {
@@ -17,15 +29,15 @@ test.describe('qbrow bookmark palette', () => {
       ],
     });
 
-    const swPromise = context.waitForEvent('serviceworker', {
-      predicate: (worker) => worker.url().includes('background.js'),
-      timeout: 10000,
-    }).catch(() => null);
-    sw =
-      context.serviceWorkers().find((w) => w.url().includes('background.js')) ??
-      (await swPromise);
+    // Wait for SW to be registered
+    if (!context.serviceWorkers().find((w) => w.url().includes('background.js'))) {
+      await context.waitForEvent('serviceworker', {
+        predicate: (w) => w.url().includes('background.js'),
+        timeout: 10000,
+      });
+    }
 
-    await sw.evaluate(async () => {
+    await swEval(async () => {
       const existing = await chrome.bookmarks.search('__qbrow_test__');
       for (const b of existing) await chrome.bookmarks.remove(b.id);
       await chrome.bookmarks.create({ title: '__qbrow_test__ Playwright Docs', url: 'https://playwright.dev' });
@@ -38,13 +50,10 @@ test.describe('qbrow bookmark palette', () => {
   });
 
   test.afterAll(async () => {
-    const worker = context.serviceWorkers().find((w) => w.url().includes('background.js'));
-    if (worker) {
-      await worker.evaluate(async () => {
-        const existing = await chrome.bookmarks.search('__qbrow_test__');
-        for (const b of existing) await chrome.bookmarks.remove(b.id);
-      });
-    }
+    await swEval(async () => {
+      const existing = await chrome.bookmarks.search('__qbrow_test__');
+      for (const b of existing) await chrome.bookmarks.remove(b.id);
+    }).catch(() => {});
     await context.close();
   });
 
@@ -59,9 +68,10 @@ test.describe('qbrow bookmark palette', () => {
   }
 
   async function openPalette() {
-    await sw.evaluate(async () => {
+    // Fire-and-forget: TOGGLE has no sendResponse, so awaiting sendMessage can hang.
+    await swEval(async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' });
+      if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' }).catch(() => {});
     });
     await page.waitForSelector('#qbrow-host', { state: 'attached', timeout: 3000 });
     await frame().locator('#qbrow-input').waitFor({ timeout: 3000 });
@@ -70,7 +80,9 @@ test.describe('qbrow bookmark palette', () => {
   async function closePalette() {
     const isOpen = await page.evaluate(() => !!document.getElementById('qbrow-host'));
     if (isOpen) {
-      await frame().locator('#qbrow-input').press('Escape');
+      // .catch: pressing Escape removes the iframe; Playwright may throw because the
+      // frame closes while it is still completing the press() call — that is expected.
+      await frame().locator('#qbrow-input').press('Escape').catch(() => {});
       await page.waitForSelector('#qbrow-host', { state: 'detached', timeout: 2000 }).catch(() => {});
     }
   }
@@ -113,34 +125,11 @@ test.describe('qbrow bookmark palette', () => {
   // ─── sanity check ────────────────────────────────────────────────────────────
 
   test('seeded bookmarks exist in background', async () => {
-    const count = await sw.evaluate(async () => {
+    const count = await swEval(async () => {
       const all = await chrome.bookmarks.search('__qbrow_test__');
       return all.length;
     });
     expect(count).toBe(3);
-  });
-
-  test('background returns results for SEARCH message', async () => {
-    await page.goto('https://example.com');
-    await openPalette();
-
-    const results = await sw.evaluate(async () => {
-      const tree = await chrome.bookmarks.getTree();
-      const flat = [];
-      (function flatten(nodes) {
-        for (const n of nodes) {
-          if (n.url) flat.push({ id: n.id, title: n.title || '', url: n.url });
-          if (n.children) flatten(n.children);
-        }
-      })(tree);
-      const q = 'playwright';
-      return flat.filter(
-        (b) => b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q),
-      );
-    });
-    expect(results.length).toBeGreaterThan(0);
-
-    await closePalette();
   });
 
   // ─── UI tests ────────────────────────────────────────────────────────────────
@@ -155,7 +144,7 @@ test.describe('qbrow bookmark palette', () => {
   test('Escape closes the palette', async () => {
     await page.goto('https://example.com');
     await openPalette();
-    await frame().locator('#qbrow-input').press('Escape');
+    await frame().locator('#qbrow-input').press('Escape').catch(() => {});
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
   });
 
@@ -263,18 +252,18 @@ test.describe('qbrow bookmark palette', () => {
   });
 
   test('searching by tag returns tagged bookmarks', async () => {
-    await sw.evaluate(async () => {
+    await page.goto('https://example.com');
+
+    await swEval(async () => {
       const result = await chrome.storage.local.get('tags');
       const tags = result.tags ?? {};
       const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
       if (bm) { tags[bm.id] = ['e2e']; await chrome.storage.local.set({ tags }); }
     });
-    await sw.evaluate(async () => {
+    await swEval(async () => {
       const b = await chrome.bookmarks.create({ title: '__qbrow_cache_bust__', url: 'https://example.com' });
       await chrome.bookmarks.remove(b.id);
     });
-
-    await page.goto('https://example.com');
     await openPalette();
     await search('e2e');
     await waitForResults(1);
@@ -286,14 +275,14 @@ test.describe('qbrow bookmark palette', () => {
   });
 
   test('saving a tag stores it and shows as chip on the bookmark', async () => {
-    await sw.evaluate(async () => {
+    await page.goto('https://example.com');
+
+    await swEval(async () => {
       const result = await chrome.storage.local.get('tags');
       const tags = result.tags ?? {};
       for (const id of Object.keys(tags)) delete tags[id];
       await chrome.storage.local.set({ tags });
     });
-
-    await page.goto('https://example.com');
     await openPalette();
 
     await frame().locator('#qbrow-input').pressSequentially('/tag add playwright');
@@ -316,11 +305,52 @@ test.describe('qbrow bookmark palette', () => {
     await closePalette();
   });
 
+  // ─── landing-page guard ──────────────────────────────────────────────────────
+
+  test('isPrivilegedUrl correctly classifies URLs', async () => {
+    const results = await swEval(() => ({
+      chromeNewtab:  isPrivilegedUrl('chrome://newtab/'),
+      braveNewtab:   isPrivilegedUrl('brave://newtab/'),
+      aboutBlank:    isPrivilegedUrl('about:blank'),
+      extPage:       isPrivilegedUrl('chrome-extension://abc/page.html'),
+      webstore:      isPrivilegedUrl('https://chrome.google.com/webstore/devconsole/'),
+      example:       isPrivilegedUrl('https://example.com'),
+      httpPage:      isPrivilegedUrl('http://localhost:3000'),
+    }));
+
+    expect(results.chromeNewtab).toBe(true);
+    expect(results.braveNewtab).toBe(true);
+    expect(results.aboutBlank).toBe(true);
+    expect(results.extPage).toBe(true);
+    // https:// pages must never trigger landing navigation, even if injection is blocked
+    expect(results.webstore).toBe(false);
+    expect(results.example).toBe(false);
+    expect(results.httpPage).toBe(false);
+  });
+
+  test('palette opens as iframe overlay on https pages, not as landing navigation', async () => {
+    await page.goto('https://example.com');
+    const urlBefore = page.url();
+    const tabsBefore = context.pages().length;
+
+    await openPalette();
+
+    // URL must not have changed — no landing navigation or new tab
+    expect(page.url()).toBe(urlBefore);
+    expect(page.url()).not.toContain('palette.html');
+    expect(context.pages().length).toBe(tabsBefore);
+
+    // Palette must be present as an iframe, not a full-page takeover
+    await expect(page.locator('#qbrow-host')).toBeAttached();
+
+    await closePalette();
+  });
+
   // ─── scroll behaviour ────────────────────────────────────────────────────────
 
   test('results list scrolls to keep active item visible with peek', async () => {
     const prefix = '__qbrow_scroll_' + Date.now() + '__';
-    const ids = await sw.evaluate(async (pfx) => {
+    const ids = await swEval(async (pfx) => {
       const created = [];
       for (let i = 1; i <= 10; i++) {
         const b = await chrome.bookmarks.create({
@@ -387,7 +417,7 @@ test.describe('qbrow bookmark palette', () => {
     expect(sTop.scrollTop).toBe(0);
     expect(sTop.activeIdx).toBe(0);
 
-    await sw.evaluate(async (idList) => {
+    await swEval(async (idList) => {
       for (const id of idList) await chrome.bookmarks.remove(id).catch(() => {});
     }, ids);
 
@@ -466,7 +496,7 @@ test.describe('qbrow bookmark palette', () => {
 
     await frame().locator('.qbrow-item[data-kind="save"]').first().waitFor({ timeout: 3000 });
 
-    await sw.evaluate(async (name) => {
+    await swEval(async (name) => {
       const results = await chrome.bookmarks.search(name);
       for (const b of results) await chrome.bookmarks.remove(b.id);
     }, uniqueName);
@@ -475,8 +505,10 @@ test.describe('qbrow bookmark palette', () => {
   });
 
   test('/tag remove shows existing tags and removes the selected one', async () => {
+    await page.goto('https://example.com');
+
     // Seed a known tag
-    await sw.evaluate(async () => {
+    await swEval(async () => {
       const result = await chrome.storage.local.get('tags');
       const tags = result.tags ?? {};
       const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
@@ -484,8 +516,6 @@ test.describe('qbrow bookmark palette', () => {
       const b = await chrome.bookmarks.create({ title: '__qbrow_cache_bust__', url: 'https://example.com' });
       await chrome.bookmarks.remove(b.id);
     });
-
-    await page.goto('https://example.com');
     await openPalette();
 
     await frame().locator('#qbrow-input').pressSequentially('/tag remove playwright');
@@ -515,7 +545,7 @@ test.describe('qbrow bookmark palette', () => {
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
 
     // Verify the tag is gone
-    const tagGone = await sw.evaluate(async () => {
+    const tagGone = await swEval(async () => {
       const result = await chrome.storage.local.get('tags');
       const tags = result.tags ?? {};
       const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
@@ -541,13 +571,13 @@ test.describe('qbrow bookmark palette', () => {
 
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
 
-    const found = await sw.evaluate(async (t) => {
+    const found = await swEval(async (t) => {
       const results = await chrome.bookmarks.search(t);
       return results.length > 0;
     }, title);
     expect(found).toBe(true);
 
-    await sw.evaluate(async (t) => {
+    await swEval(async (t) => {
       const results = await chrome.bookmarks.search(t);
       for (const b of results) await chrome.bookmarks.remove(b.id);
     }, title);

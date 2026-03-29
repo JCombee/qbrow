@@ -3,7 +3,7 @@
   "name": "qbrow",
   "version": "0.1.0",
   "description": "Command palette for your browser — search bookmarks and more.",
-  "permissions": ["bookmarks", "tabs", "storage"],
+  "permissions": ["bookmarks", "tabs", "storage", "scripting"],
   "background": {
     "service_worker": "background.js"
   },
