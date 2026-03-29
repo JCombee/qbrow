@@ -48,55 +48,66 @@ test.describe('qbrow bookmark palette', () => {
     await context.close();
   });
 
+  // Returns a FrameLocator scoped to the palette iframe
+  function frame() {
+    return page.frameLocator('#qbrow-host');
+  }
+
+  // Returns the actual Frame object (for evaluate calls)
+  function paletteFrame() {
+    return page.frames().find((f) => f.url().includes('palette.html'));
+  }
+
   async function openPalette() {
     await sw.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' });
     });
     await page.waitForSelector('#qbrow-host', { state: 'attached', timeout: 3000 });
+    await frame().locator('#qbrow-input').waitFor({ timeout: 3000 });
   }
 
   async function closePalette() {
     const isOpen = await page.evaluate(() => !!document.getElementById('qbrow-host'));
     if (isOpen) {
-      await page.evaluate(() => {
-        document.getElementById('qbrow-host')?.shadowRoot
-          ?.getElementById('qbrow-input')
-          ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      });
+      await frame().locator('#qbrow-input').press('Escape');
       await page.waitForSelector('#qbrow-host', { state: 'detached', timeout: 2000 }).catch(() => {});
     }
   }
 
-  // Click the input to focus it, then use real keyboard events to type.
-  // keyboard.type() fires native keydown/keypress/input/keyup events that
-  // the content script's isolated-world listener reliably receives.
   async function search(query) {
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type(query);
+    await frame().locator('#qbrow-input').pressSequentially(query);
   }
 
   async function waitForResults(minCount = 1, timeout = 4000) {
-    await page.waitForFunction(
-      (n) => {
-        const host = document.getElementById('qbrow-host');
-        return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) >= n;
-      },
-      minCount,
-      { timeout },
-    );
+    await frame().locator('.qbrow-item').nth(minCount - 1).waitFor({ timeout });
   }
 
   async function getShadowResults() {
-    return page.evaluate(() => {
-      const host = document.getElementById('qbrow-host');
-      if (!host) return [];
-      const items = host.shadowRoot.querySelectorAll('.qbrow-item');
-      return Array.from(items).map((el) => ({
+    const f = paletteFrame();
+    if (!f) return [];
+    return f.evaluate(() =>
+      Array.from(document.querySelectorAll('.qbrow-item')).map((el) => ({
         title: el.querySelector('.qbrow-item-title')?.textContent,
         url: el.dataset.url,
-      }));
-    });
+      })),
+    );
+  }
+
+  async function pressEnterInPalette() {
+    await frame().locator('#qbrow-input').press('Enter');
+  }
+
+  async function getFolderItems() {
+    const f = paletteFrame();
+    if (!f) return [];
+    return f.evaluate(() =>
+      Array.from(document.querySelectorAll('.qbrow-item')).map((el) => ({
+        kind: el.dataset.kind,
+        title: el.querySelector('.qbrow-item-title')?.textContent,
+        path: el.querySelector('.qbrow-item-path')?.textContent ?? null,
+      })),
+    );
   }
 
   // ─── sanity check ────────────────────────────────────────────────────────────
@@ -113,7 +124,6 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    // Send SEARCH directly from the SW and check results come back
     const results = await sw.evaluate(async () => {
       const tree = await chrome.bookmarks.getTree();
       const flat = [];
@@ -145,11 +155,7 @@ test.describe('qbrow bookmark palette', () => {
   test('Escape closes the palette', async () => {
     await page.goto('https://example.com');
     await openPalette();
-    await page.evaluate(() => {
-      document.getElementById('qbrow-host')?.shadowRoot
-        ?.getElementById('qbrow-input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
+    await frame().locator('#qbrow-input').press('Escape');
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
   });
 
@@ -173,16 +179,10 @@ test.describe('qbrow bookmark palette', () => {
     await search('playwright');
     await waitForResults(1);
 
-    // ArrowDown via shadow DOM keydown event
-    await page.evaluate(() => {
-      document.getElementById('qbrow-host')?.shadowRoot
-        ?.getElementById('qbrow-input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    });
+    await frame().locator('#qbrow-input').press('ArrowDown');
 
-    const isFirstActive = await page.evaluate(() => {
-      const host = document.getElementById('qbrow-host');
-      const items = host?.shadowRoot?.querySelectorAll('.qbrow-item');
+    const isFirstActive = await paletteFrame().evaluate(() => {
+      const items = document.querySelectorAll('.qbrow-item');
       return items?.[0]?.classList.contains('active') ?? false;
     });
 
@@ -196,13 +196,8 @@ test.describe('qbrow bookmark palette', () => {
     await search('playwright');
     await waitForResults(1);
 
-    // Select first item and press Enter
-    await page.evaluate(() => {
-      const input = document.getElementById('qbrow-host')?.shadowRoot?.getElementById('qbrow-input');
-      if (!input) return;
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
+    await frame().locator('#qbrow-input').press('ArrowDown');
+    await frame().locator('#qbrow-input').press('Enter');
 
     await page.waitForURL('https://playwright.dev/**', { timeout: 8000 });
     expect(page.url()).toContain('playwright.dev');
@@ -214,11 +209,7 @@ test.describe('qbrow bookmark palette', () => {
     await search('vitest');
     await waitForResults(1);
 
-    await page.evaluate(() => {
-      const host = document.getElementById('qbrow-host');
-      const first = host?.shadowRoot?.querySelector('.qbrow-item');
-      first?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    });
+    await frame().locator('.qbrow-item').first().click();
 
     await page.waitForURL('https://vitest.dev/**', { timeout: 8000 });
     expect(page.url()).toContain('vitest.dev');
@@ -228,11 +219,8 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.evaluate(() => {
-      const host = document.getElementById('qbrow-host');
-      const overlay = host?.shadowRoot?.getElementById('qbrow-overlay');
-      overlay?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    });
+    // Click the overlay backdrop — top-left corner is outside the centered palette card
+    await frame().locator('#qbrow-overlay').click({ position: { x: 10, y: 10 } });
 
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
   });
@@ -243,14 +231,10 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/tag playwright');
+    await frame().locator('#qbrow-input').pressSequentially('/tag playwright');
     await waitForResults(1);
 
-    // Badge should be visible and say "tag"
-    const badgeText = await page.evaluate(() =>
-      document.getElementById('qbrow-host')?.shadowRoot?.getElementById('qbrow-badge')?.textContent,
-    );
+    const badgeText = await frame().locator('#qbrow-badge').textContent();
     expect(badgeText).toBe('tag');
 
     const results = await getShadowResults();
@@ -264,42 +248,27 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/tag playwright');
+    await frame().locator('#qbrow-input').pressSequentially('/tag playwright');
     await waitForResults(1);
 
-    // Press Enter to select the first result
-    await page.evaluate(() => {
-      document.getElementById('qbrow-host')?.shadowRoot
-        ?.getElementById('qbrow-input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
+    await pressEnterInPalette();
 
-    // Input should now be empty and placeholder should indicate tag-name step
-    const placeholder = await page.evaluate(() =>
-      document.getElementById('qbrow-host')?.shadowRoot?.getElementById('qbrow-input')?.placeholder,
-    );
+    const placeholder = await frame().locator('#qbrow-input').getAttribute('placeholder');
     expect(placeholder).toBe('Enter tag name…');
 
-    // Badge should show the bookmark name
-    const badgeText = await page.evaluate(() =>
-      document.getElementById('qbrow-host')?.shadowRoot?.getElementById('qbrow-badge')?.textContent,
-    );
+    const badgeText = await frame().locator('#qbrow-badge').textContent();
     expect(badgeText).toContain('tag →');
 
     await closePalette();
   });
 
   test('searching by tag returns tagged bookmarks', async () => {
-    // Ensure a known tag exists: tag the Playwright bookmark with "e2e"
     await sw.evaluate(async () => {
       const result = await chrome.storage.local.get('tags');
       const tags = result.tags ?? {};
       const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
       if (bm) { tags[bm.id] = ['e2e']; await chrome.storage.local.set({ tags }); }
-      // invalidate background cache so it reloads tags
     });
-    // Force cache invalidation by triggering onCreated (create + remove a dummy bookmark)
     await sw.evaluate(async () => {
       const b = await chrome.bookmarks.create({ title: '__qbrow_cache_bust__', url: 'https://example.com' });
       await chrome.bookmarks.remove(b.id);
@@ -317,7 +286,6 @@ test.describe('qbrow bookmark palette', () => {
   });
 
   test('saving a tag stores it and shows as chip on the bookmark', async () => {
-    // Clean up any leftover tag from previous runs
     await sw.evaluate(async () => {
       const result = await chrome.storage.local.get('tags');
       const tags = result.tags ?? {};
@@ -328,39 +296,21 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    // Tag the Playwright bookmark with "testing"
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/tag playwright');
+    await frame().locator('#qbrow-input').pressSequentially('/tag playwright');
     await waitForResults(1);
 
-    await page.evaluate(() => {
-      document.getElementById('qbrow-host')?.shadowRoot
-        ?.getElementById('qbrow-input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
+    await pressEnterInPalette();
 
-    // Type the tag name and confirm
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('testing');
-    await page.evaluate(() => {
-      document.getElementById('qbrow-host')?.shadowRoot
-        ?.getElementById('qbrow-input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
+    await frame().locator('#qbrow-input').pressSequentially('testing');
+    await pressEnterInPalette();
 
-    // Palette should close
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
 
-    // Reopen and search — the bookmark should now show the "testing" tag chip
     await openPalette();
     await search('playwright');
     await waitForResults(1);
 
-    const tagChip = await page.evaluate(() => {
-      const host = document.getElementById('qbrow-host');
-      const item = host?.shadowRoot?.querySelector('.qbrow-item');
-      return item?.querySelector('.qbrow-tag')?.textContent ?? null;
-    });
+    const tagChip = await frame().locator('.qbrow-item .qbrow-tag').first().textContent().catch(() => null);
     expect(tagChip).toBe('testing');
 
     await closePalette();
@@ -368,49 +318,20 @@ test.describe('qbrow bookmark palette', () => {
 
   // ─── /save command ─────────────────────────────────────────────────────────────
 
-  async function pressEnterInPalette() {
-    await page.evaluate(() => {
-      document.getElementById('qbrow-host')?.shadowRoot
-        ?.getElementById('qbrow-input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-  }
-
-  async function getFolderItems() {
-    return page.evaluate(() => {
-      const host = document.getElementById('qbrow-host');
-      if (!host) return [];
-      return Array.from(host.shadowRoot.querySelectorAll('.qbrow-item')).map(el => ({
-        kind: el.dataset.kind,
-        title: el.querySelector('.qbrow-item-title')?.textContent,
-        path: el.querySelector('.qbrow-item-path')?.textContent ?? null,
-      }));
-    });
-  }
-
   test('/save shows folder navigation after entering bookmark name', async () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/save My Bookmark');
+    await frame().locator('#qbrow-input').pressSequentially('/save My Bookmark');
     await pressEnterInPalette();
 
-    // Should transition to save-location mode with folder list visible
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item').first().waitFor({ timeout: 3000 });
 
     const items = await getFolderItems();
-    // At root: only folder items (no "Save here"), all should be kind=folder
     expect(items.length).toBeGreaterThan(0);
-    expect(items.every(i => i.kind === 'folder')).toBe(true);
+    expect(items.every((i) => i.kind === 'folder')).toBe(true);
 
-    // Placeholder should indicate folder navigation
-    const placeholder = await page.evaluate(() =>
-      document.getElementById('qbrow-host')?.shadowRoot?.getElementById('qbrow-input')?.placeholder,
-    );
+    const placeholder = await frame().locator('#qbrow-input').getAttribute('placeholder');
     expect(placeholder).toBe('Navigate to folder…');
 
     await closePalette();
@@ -420,25 +341,15 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/save My Bookmark');
+    await frame().locator('#qbrow-input').pressSequentially('/save My Bookmark');
     await pressEnterInPalette();
 
-    // Wait for root folders
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item').first().waitFor({ timeout: 3000 });
 
     // Navigate into the first folder (e.g. Bookmarks Bar)
     await pressEnterInPalette();
 
-    // Now "Save here" should be the first item
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      const first = host?.shadowRoot?.querySelector('.qbrow-item');
-      return first?.dataset?.kind === 'save';
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item[data-kind="save"]').first().waitFor({ timeout: 3000 });
 
     const items = await getFolderItems();
     expect(items[0].kind).toBe('save');
@@ -453,51 +364,30 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/save Test Page');
+    await frame().locator('#qbrow-input').pressSequentially('/save Test Page');
     await pressEnterInPalette();
 
-    // Wait for root folders and navigate into the first one
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item').first().waitFor({ timeout: 3000 });
     await pressEnterInPalette();
 
-    // Wait until inside a folder (Save here visible)
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return host?.shadowRoot?.querySelector('.qbrow-item')?.dataset?.kind === 'save';
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item[data-kind="save"]').first().waitFor({ timeout: 3000 });
 
-    // Type a unique folder name that won't exist
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type(uniqueName);
+    await frame().locator('#qbrow-input').pressSequentially(uniqueName);
 
-    // "Create" item should appear
-    await page.waitForFunction((name) => {
-      const host = document.getElementById('qbrow-host');
-      const items = host?.shadowRoot?.querySelectorAll('.qbrow-item');
-      return Array.from(items ?? []).some(el =>
-        el.dataset.kind === 'create' && el.querySelector('.qbrow-item-title')?.textContent?.includes(name),
-      );
-    }, uniqueName, { timeout: 3000 });
+    await frame()
+      .locator('.qbrow-item[data-kind="create"]')
+      .filter({ hasText: uniqueName })
+      .waitFor({ timeout: 3000 });
 
     const items = await getFolderItems();
-    const createItem = items.find(i => i.kind === 'create');
+    const createItem = items.find((i) => i.kind === 'create');
     expect(createItem).toBeTruthy();
     expect(createItem.title).toContain(uniqueName);
 
-    // Select the Create item — navigates into the new folder
     await pressEnterInPalette();
 
-    // Should now be inside the new folder with "Save here" visible
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return host?.shadowRoot?.querySelector('.qbrow-item')?.dataset?.kind === 'save';
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item[data-kind="save"]').first().waitFor({ timeout: 3000 });
 
-    // Clean up the created folder
     await sw.evaluate(async (name) => {
       const results = await chrome.bookmarks.search(name);
       for (const b of results) await chrome.bookmarks.remove(b.id);
@@ -512,35 +402,23 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await page.locator('#qbrow-input').click();
-    await page.keyboard.type('/save ' + title);
+    await frame().locator('#qbrow-input').pressSequentially('/save ' + title);
     await pressEnterInPalette();
 
-    // Navigate into the first top-level folder
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return (host?.shadowRoot?.querySelectorAll('.qbrow-item').length ?? 0) > 0;
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item').first().waitFor({ timeout: 3000 });
     await pressEnterInPalette();
 
-    // Wait for "Save here" and select it
-    await page.waitForFunction(() => {
-      const host = document.getElementById('qbrow-host');
-      return host?.shadowRoot?.querySelector('.qbrow-item')?.dataset?.kind === 'save';
-    }, { timeout: 3000 });
+    await frame().locator('.qbrow-item[data-kind="save"]').first().waitFor({ timeout: 3000 });
     await pressEnterInPalette();
 
-    // Palette should close after saving
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
 
-    // Verify bookmark was actually created
     const found = await sw.evaluate(async (t) => {
       const results = await chrome.bookmarks.search(t);
       return results.length > 0;
     }, title);
     expect(found).toBe(true);
 
-    // Clean up
     await sw.evaluate(async (t) => {
       const results = await chrome.bookmarks.search(t);
       for (const b of results) await chrome.bookmarks.remove(b.id);
