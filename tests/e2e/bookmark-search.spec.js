@@ -316,6 +316,84 @@ test.describe('qbrow bookmark palette', () => {
     await closePalette();
   });
 
+  // ─── scroll behaviour ────────────────────────────────────────────────────────
+
+  test('results list scrolls to keep active item visible with peek', async () => {
+    const prefix = '__qbrow_scroll_' + Date.now() + '__';
+    const ids = await sw.evaluate(async (pfx) => {
+      const created = [];
+      for (let i = 1; i <= 10; i++) {
+        const b = await chrome.bookmarks.create({
+          title: `${pfx} item ${String(i).padStart(2, '0')}`,
+          url: `https://example.com/scroll/${i}`,
+        });
+        created.push(b.id);
+      }
+      return created;
+    }, prefix);
+
+    await page.goto('https://example.com');
+    await openPalette();
+    await search(prefix);
+    await waitForResults(10, 6000);
+
+    const pf = paletteFrame();
+
+    const getState = () => pf.evaluate(() => {
+      const list = document.getElementById('qbrow-results');
+      const items = [...list.querySelectorAll('.qbrow-item')];
+      const idx = items.findIndex((el) => el.classList.contains('active'));
+      const listRect = list.getBoundingClientRect();
+      const activeRect = idx >= 0 ? items[idx].getBoundingClientRect() : null;
+      return {
+        scrollTop: list.scrollTop,
+        clientHeight: list.clientHeight,
+        activeIdx: idx,
+        activeRelTop: activeRect ? activeRect.top - listRect.top : null,
+        activeRelBottom: activeRect ? activeRect.bottom - listRect.top : null,
+        itemCount: items.length,
+      };
+    });
+
+    const s0 = await getState();
+    expect(s0.scrollTop).toBe(0);
+    expect(s0.activeIdx).toBe(0);
+    expect(s0.itemCount).toBe(10);
+
+    // Navigate down through all items — scroll must engage and active must stay in view
+    let scrolled = false;
+    for (let i = 0; i < 9; i++) {
+      await frame().locator('#qbrow-input').press('ArrowDown');
+      const s = await getState();
+      expect(s.activeRelTop).toBeGreaterThanOrEqual(-1);
+      expect(s.activeRelBottom).toBeLessThanOrEqual(s.clientHeight + 1);
+      if (s.scrollTop > 0) scrolled = true;
+    }
+    expect(scrolled).toBe(true);
+
+    const sBottom = await getState();
+    expect(sBottom.scrollTop).toBeGreaterThan(0);
+    expect(sBottom.activeIdx).toBe(9);
+
+    // Navigate back up — active must stay in view and scroll must return to 0
+    for (let i = 0; i < 9; i++) {
+      await frame().locator('#qbrow-input').press('ArrowUp');
+      const s = await getState();
+      expect(s.activeRelTop).toBeGreaterThanOrEqual(-1);
+      expect(s.activeRelBottom).toBeLessThanOrEqual(s.clientHeight + 1);
+    }
+
+    const sTop = await getState();
+    expect(sTop.scrollTop).toBe(0);
+    expect(sTop.activeIdx).toBe(0);
+
+    await sw.evaluate(async (idList) => {
+      for (const id of idList) await chrome.bookmarks.remove(id).catch(() => {});
+    }, ids);
+
+    await closePalette();
+  });
+
   // ─── /save command ─────────────────────────────────────────────────────────────
 
   test('/save shows folder navigation after entering bookmark name', async () => {

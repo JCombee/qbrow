@@ -55,6 +55,36 @@
     getItems().forEach((el, i) => el.classList.toggle('active', i === index));
   }
 
+  function scrollToActive(direction) {
+    const items = getItems();
+    const idx = getActiveIndex();
+    if (idx < 0) return;
+    const item = items[idx];
+    const cRect = resultsList.getBoundingClientRect();
+    const iRect = item.getBoundingClientRect();
+    const scrollTop = resultsList.scrollTop;
+    // Convert viewport-relative coords to scroll-space coords
+    const itemTop = iRect.top - cRect.top + scrollTop;
+    const itemBottom = itemTop + iRect.height;
+    const viewBottom = scrollTop + resultsList.clientHeight;
+
+    if (direction === 'down') {
+      const peekItem = items[idx + 1];
+      const peek = peekItem ? peekItem.getBoundingClientRect().height * (2 / 3) : 0;
+      const needBottom = itemBottom + peek;
+      if (needBottom > viewBottom) {
+        resultsList.scrollTop = needBottom - resultsList.clientHeight;
+      }
+    } else {
+      const peekItem = items[idx - 1];
+      const peek = peekItem ? peekItem.getBoundingClientRect().height * (2 / 3) : 0;
+      const needTop = itemTop - peek;
+      if (needTop < scrollTop) {
+        resultsList.scrollTop = Math.max(0, needTop);
+      }
+    }
+  }
+
   function renderItems(items) {
     clearResults();
     for (const item of items) {
@@ -338,12 +368,14 @@
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActive(Math.min(getActiveIndex() + 1, count - 1));
+      scrollToActive('down');
       return;
     }
 
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActive(Math.max(getActiveIndex() - 1, 0));
+      scrollToActive('up');
       return;
     }
 
