@@ -1,6 +1,8 @@
-# qbrow
-
-> Quickly browse through your bookmarks.
+<div align="center">
+  <img src="icons/icon128.png" width="80" alt="qbrow">
+  <h1>qbrow</h1>
+  <p>Quickly browse through your bookmarks.</p>
+</div>
 
 A keyboard-driven command palette for your browser. Search bookmarks instantly, tag them for quick recall, and navigate without touching the mouse.
 

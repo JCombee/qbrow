@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Background -->
+  <rect width="128" height="128" rx="24" fill="#1e1e2e"/>
+  <!-- Chevron prompt -->
+  <path d="M28 42 L56 64 L28 86" fill="none" stroke="#cba6f7" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Cursor bar -->
+  <rect x="66" y="55" width="34" height="18" rx="4" fill="#89b4fa"/>
+</svg>
