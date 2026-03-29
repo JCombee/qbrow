@@ -333,7 +333,7 @@
       debounceTimer = setTimeout(() => {
         const commandItems = COMMANDS
           .filter((c) => c.title.startsWith(val) || val.startsWith(c.title))
-          .map((c) => ({ kind: 'command', title: c.title, path: c.desc, prefix: c.prefix }));
+          .map((c) => ({ kind: 'command', title: c.title, path: c.desc, prefix: c.prefix, action: c.action }));
         chrome.runtime.sendMessage({ type: 'SEARCH', query: val }, (r) => {
           renderItems([...commandItems, ...(r?.results ?? [])]);
         });
