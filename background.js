@@ -96,6 +96,142 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  // ── E2E test helpers ──────────────────────────────────────────────────────
+  // These handlers are only called from the Playwright test suite.
+  // Using explicit message types instead of eval avoids the extension CSP
+  // 'unsafe-eval' restriction while keeping all logic in the SW context.
+
+  if (message.type === 'TEST_SEED_BOOKMARKS') {
+    (async () => {
+      const existing = await chrome.bookmarks.search('__qbrow_test__');
+      for (const b of existing) await chrome.bookmarks.remove(b.id);
+      await chrome.bookmarks.create({ title: '__qbrow_test__ Playwright Docs', url: 'https://playwright.dev' });
+      await chrome.bookmarks.create({ title: '__qbrow_test__ Vitest Docs',     url: 'https://vitest.dev'     });
+      await chrome.bookmarks.create({ title: '__qbrow_test__ MDN',             url: 'https://developer.mozilla.org' });
+      cachedBookmarks = null;
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_CLEAN_BOOKMARKS') {
+    (async () => {
+      const existing = await chrome.bookmarks.search('__qbrow_test__');
+      for (const b of existing) await chrome.bookmarks.remove(b.id);
+      cachedBookmarks = null;
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_COUNT_BOOKMARKS') {
+    (async () => {
+      const all = await chrome.bookmarks.search('__qbrow_test__');
+      sendResponse({ count: all.length });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_CLEAR_TAGS') {
+    (async () => {
+      const result = await chrome.storage.local.get('tags');
+      const tags = result.tags ?? {};
+      for (const id of Object.keys(tags)) delete tags[id];
+      await chrome.storage.local.set({ tags });
+      cachedBookmarks = null;
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_SET_TAG') {
+    // Sets message.tagName on the Playwright Docs test bookmark and busts the cache.
+    (async () => {
+      const result = await chrome.storage.local.get('tags');
+      const tags = result.tags ?? {};
+      const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
+      if (bm) { tags[bm.id] = [message.tagName]; await chrome.storage.local.set({ tags }); }
+      const bust = await chrome.bookmarks.create({ title: '__qbrow_cache_bust__', url: 'https://example.com' });
+      await chrome.bookmarks.remove(bust.id);
+      cachedBookmarks = null;
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_HAS_TAG') {
+    // Returns { has: bool } — whether the Playwright Docs bookmark has message.tagName.
+    (async () => {
+      const result = await chrome.storage.local.get('tags');
+      const tags = result.tags ?? {};
+      const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
+      const has = (tags[bm?.id] ?? []).includes(message.tagName);
+      sendResponse({ has });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_CREATE_SCROLL_BOOKMARKS') {
+    // message.prefix — title prefix; creates 10 numbered bookmarks, returns their IDs.
+    (async () => {
+      const ids = [];
+      for (let i = 1; i <= 10; i++) {
+        const b = await chrome.bookmarks.create({
+          title: `${message.prefix} item ${String(i).padStart(2, '0')}`,
+          url:   `https://example.com/scroll/${i}`,
+        });
+        ids.push(b.id);
+      }
+      cachedBookmarks = null;
+      sendResponse({ ids });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_REMOVE_BOOKMARKS') {
+    // message.ids — array of bookmark IDs to remove.
+    (async () => {
+      for (const id of message.ids) await chrome.bookmarks.remove(id).catch(() => {});
+      cachedBookmarks = null;
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_CLASSIFY_URLS') {
+    sendResponse({
+      chromeNewtab: isPrivilegedUrl('chrome://newtab/'),
+      braveNewtab:  isPrivilegedUrl('brave://newtab/'),
+      aboutBlank:   isPrivilegedUrl('about:blank'),
+      extPage:      isPrivilegedUrl('chrome-extension://abc/page.html'),
+      webstore:     isPrivilegedUrl('https://chrome.google.com/webstore/devconsole/'),
+      example:      isPrivilegedUrl('https://example.com'),
+      httpPage:     isPrivilegedUrl('http://localhost:3000'),
+    });
+  }
+
+  if (message.type === 'TEST_SEARCH_REMOVE') {
+    // message.query — search string; removes all matches, returns { found }.
+    (async () => {
+      const results = await chrome.bookmarks.search(message.query);
+      for (const b of results) await chrome.bookmarks.remove(b.id);
+      cachedBookmarks = null;
+      sendResponse({ found: results.length > 0 });
+    })();
+    return true;
+  }
+
+  if (message.type === 'TEST_TOGGLE_PALETTE') {
+    // Sends TOGGLE to the active tab (mirrors the keyboard-shortcut handler).
+    (async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' }).catch(() => {});
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+  // ── end E2E test helpers ───────────────────────────────────────────────────
+
   if (message.type === 'SEARCH') {
     getBookmarks().then((bookmarks) => {
       sendResponse({ results: filterBookmarks(bookmarks, message.query) });
@@ -134,6 +270,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'OPEN_SETTINGS') {
     chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
   }
+
 
   if (message.type === 'SAVE_BOOKMARK') {
     (async () => {
