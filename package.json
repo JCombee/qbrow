@@ -1,0 +1,13 @@
+{
+  "name": "qbrow",
+  "version": "0.1.0",
+  "scripts": {
+    "test:unit": "vitest run tests/unit",
+    "test:e2e": "playwright test tests/e2e",
+    "test": "npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "vitest": "^2.0.0"
+  }
+}

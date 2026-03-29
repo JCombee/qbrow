@@ -1,0 +1,9 @@
+node_modules/
+test-results/
+
+# Playwright persistent context profile (created in project root during tests)
+Default/
+First Run
+Local State
+
+.claude
