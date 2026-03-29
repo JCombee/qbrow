@@ -133,6 +133,10 @@
   color: #89b4fa;
 }
 
+.qbrow-command-item .qbrow-item-title {
+  color: #cba6f7;
+}
+
 .qbrow-item-tags {
   display: flex;
   flex-wrap: wrap;

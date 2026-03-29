@@ -7,6 +7,12 @@
   let saveStack = []; // [{ id, title }]
   let debounceTimer = null;
 
+  const COMMANDS = [
+    { title: '/save',        desc: 'Save current page as a bookmark',  prefix: '/save '        },
+    { title: '/tag add',     desc: 'Add a tag to a bookmark',          prefix: '/tag add '     },
+    { title: '/tag remove',  desc: 'Remove a tag from a bookmark',     prefix: '/tag remove '  },
+  ];
+
   const input = document.getElementById('qbrow-input');
   const resultsList = document.getElementById('qbrow-results');
   const badge = document.getElementById('qbrow-badge');
@@ -58,10 +64,12 @@
       if (item.url) li.dataset.url = item.url;
       if (item.id) li.dataset.id = item.id;
       if (item.folderName) li.dataset.name = item.folderName;
+      if (item.prefix) li.dataset.prefix = item.prefix;
 
       if (item.kind === 'save') li.classList.add('qbrow-save-item');
       if (item.kind === 'folder') li.classList.add('qbrow-folder-item');
       if (item.kind === 'create') li.classList.add('qbrow-create-item');
+      if (item.kind === 'command') li.classList.add('qbrow-command-item');
 
       const titleEl = document.createElement('span');
       titleEl.className = 'qbrow-item-title';
@@ -113,6 +121,16 @@
     const id = li.dataset.id;
     const folderName = li.dataset.name;
     const titleText = li.querySelector('.qbrow-item-title')?.textContent ?? '';
+
+    if (kind === 'command') {
+      const prefix = li.dataset.prefix;
+      if (prefix) {
+        input.value = prefix;
+        input.dispatchEvent(new Event('input'));
+        input.focus();
+      }
+      return;
+    }
 
     if (mode === 'search') {
       if (url) {
@@ -206,6 +224,7 @@
   input.addEventListener('input', (e) => {
     const val = e.target.value;
 
+    // ── Active tag flows (full sub-command prefix matched) ────────────────────
     if (val.startsWith('/tag add ')) {
       if (mode !== 'tag-pick' || tagAction !== 'add') {
         mode = 'tag-pick';
@@ -217,9 +236,7 @@
       const q = val.slice(9);
       debounceTimer = setTimeout(() => {
         if (!q.trim()) { clearResults(); return; }
-        chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (response) => {
-          renderItems(response?.results ?? []);
-        });
+        chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (r) => renderItems(r?.results ?? []));
       }, 100);
       return;
     }
@@ -235,25 +252,12 @@
       const q = val.slice(12);
       debounceTimer = setTimeout(() => {
         if (!q.trim()) { clearResults(); return; }
-        chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (response) => {
-          renderItems(response?.results ?? []);
-        });
+        chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (r) => renderItems(r?.results ?? []));
       }, 100);
       return;
     }
 
-    // Still typing /tag or /tag add/remove without trailing space — wait
-    if (val.startsWith('/tag')) {
-      if (mode === 'tag-pick') {
-        mode = 'search';
-        tagAction = 'add';
-        setBadge(null);
-        input.placeholder = 'Search bookmarks…';
-        clearResults();
-      }
-      return;
-    }
-
+    // Exit tag-pick if full prefix no longer matches
     if (mode === 'tag-pick') {
       mode = 'search';
       tagAction = 'add';
@@ -261,6 +265,7 @@
       input.placeholder = 'Search bookmarks…';
     }
 
+    // These modes handle their own input (tag name entry, folder filter, tag selection)
     if (mode === 'tag-name' || mode === 'tag-remove-select') return;
 
     if (mode === 'save-location') {
@@ -273,13 +278,25 @@
       return;
     }
 
-    // search mode
+    // ── Command list + bookmark matches when input starts with / ─────────────
+    if (val.startsWith('/')) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const commandItems = COMMANDS
+          .filter((c) => c.title.startsWith(val) || val.startsWith(c.title))
+          .map((c) => ({ kind: 'command', title: c.title, path: c.desc, prefix: c.prefix }));
+        chrome.runtime.sendMessage({ type: 'SEARCH', query: val }, (r) => {
+          renderItems([...commandItems, ...(r?.results ?? [])]);
+        });
+      }, 100);
+      return;
+    }
+
+    // ── Regular bookmark search ───────────────────────────────────────────────
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       if (!val.trim()) { clearResults(); return; }
-      chrome.runtime.sendMessage({ type: 'SEARCH', query: val }, (response) => {
-        renderItems(response?.results ?? []);
-      });
+      chrome.runtime.sendMessage({ type: 'SEARCH', query: val }, (r) => renderItems(r?.results ?? []));
     }, 100);
   });
 
