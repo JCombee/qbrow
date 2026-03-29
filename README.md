@@ -4,7 +4,20 @@
   <p>Quickly browse through your bookmarks.</p>
 </div>
 
-A keyboard-driven command palette for your browser. Search bookmarks instantly, tag them for quick recall, and navigate without touching the mouse.
+A keyboard-driven command palette for your browser.
+
+---
+
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/screenshot-1.png" alt="Open palette"><br><sub>Open the palette and start typing</sub></td>
+    <td align="center"><img src="screenshots/screenshot-3.png" alt="Bookmark search"><br><sub>Instant bookmark search</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/screenshot-4.png" alt="Tag commands"><br><sub>Tag commands with autocomplete</sub></td>
+    <td align="center"><img src="screenshots/screenshot-2.png" alt="Save command"><br><sub>/save a page without leaving it</sub></td>
+  </tr>
+</table> Search bookmarks instantly, tag them for quick recall, and navigate without touching the mouse.
 
 Built as a plain-JavaScript Manifest V3 extension — no framework, no build step.
 
