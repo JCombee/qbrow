@@ -12,11 +12,13 @@ Built as a plain-JavaScript Manifest V3 extension — no framework, no build ste
 
 ## Features
 
-- **Instant bookmark search** — fuzzy substring match on title, URL, and tags
+- **Instant bookmark search** — substring match on title, URL, and tags
 - **Save the current page** with `/save` — navigate your folder tree and save in one flow
-- **Tag bookmarks** with `/tag` — assign custom labels and search by them later
+- **Tag bookmarks** with `/tag add` — assign custom labels and search by them later
+- **Remove tags** with `/tag remove` — pick the bookmark, then the tag to remove
+- **Settings page** via `/settings` — view and change the keyboard shortcut
 - **Keyboard-first** — arrow keys to navigate, Enter to open, Escape to close
-- **Shadow DOM isolation** — the palette never conflicts with the host page's styles
+- **iframe isolation** — the palette never conflicts with the host page's styles or focus handling
 - **Zero dependencies** — plain JS, no build step required
 
 ---
@@ -29,7 +31,7 @@ Built as a plain-JavaScript Manifest V3 extension — no framework, no build ste
 2. Open `chrome://extensions`
 3. Enable **Developer mode** (top-right toggle)
 4. Click **Load unpacked** and select the repo folder
-5. Press `Ctrl+Shift+E` (`Cmd+Shift+E` on Mac) on any page to open the palette
+5. Press `Ctrl+Shift+F` (`Cmd+Shift+F` on Mac) on any page to open the palette
 
 ### Firefox
 
@@ -45,7 +47,7 @@ Built as a plain-JavaScript Manifest V3 extension — no framework, no build ste
 
 | Action           | How                            |
 | ---------------- | ------------------------------ |
-| Open palette     | `Ctrl+Shift+E` / `Cmd+Shift+E` |
+| Open palette     | `Ctrl+Shift+F` / `Cmd+Shift+F` |
 | Search bookmarks | Type anything                  |
 | Navigate results | `↑` / `↓` arrow keys           |
 | Open selection   | `Enter` or click               |
@@ -61,15 +63,31 @@ Save the current page as a bookmark and choose exactly where it goes:
 
 If a folder doesn't exist yet, type its name and select **Create "Name"** — the folder is created and you step into it automatically. `Escape` steps back up the tree one level at a time.
 
-### `/tag` command
+### `/tag add` command
 
 Tag a bookmark so it surfaces when you search by that label:
 
-1. Type `/tag <search>` — results show bookmarks matching your search
+1. Type `/tag add <search>` — results show bookmarks matching your search
 2. Select a bookmark with `Enter` or click
 3. Type the tag name (e.g. `tcg`, `work`, `reference`) and press `Enter`
 
-The bookmark will now appear in results whenever you search for that tag. Tags are shown as chips on each result row.
+Tags are shown as chips on each result row.
+
+### `/tag remove` command
+
+Remove a tag from a bookmark:
+
+1. Type `/tag remove <search>` — results show bookmarks matching your search
+2. Select a bookmark with `Enter` or click
+3. Select the tag to remove from the list
+
+### `/settings` command
+
+Opens the settings page in a new tab. From there you can view your current keyboard shortcut and navigate to your browser's shortcut management page to change it.
+
+### New tab / privileged pages
+
+On pages where the palette cannot be injected (new tab, `chrome://`, `brave://`, etc.), pressing the shortcut navigates the current tab to a standalone palette page. On `https://` pages where injection is blocked (e.g. the Chrome Web Store), a new tab is opened instead so the original page is preserved.
 
 ---
 
@@ -110,19 +128,31 @@ E2E tests launch a visible Chromium window — this is required because extensio
 qbrow/
 ├── manifest.json        # MV3 manifest — permissions, shortcuts, content scripts
 ├── background.js        # Service worker — bookmarks API, message routing
-├── content.js           # Injected into every page — palette UI and commands
-├── content.css          # Palette styles (loaded into the shadow root)
-├── filter.js            # Pure filter functions — shared with unit tests
+├── content.js           # Injected into every page — manages the palette iframe lifecycle
+├── palette.html         # Extension page loaded inside the palette iframe
+├── palette.js           # All palette UI logic — search, commands, keyboard handling
+├── content.css          # Palette styles (loaded by palette.html)
+├── settings.html        # Settings page (opened via /settings command)
+├── settings.js          # Settings page logic
+├── settings.css         # Settings page styles
 └── tests/
     ├── unit/            # Vitest — filter logic
     └── e2e/             # Playwright — full extension flow
 ```
 
-### Making changes
+### Architecture
 
-- **background.js** and **filter.js** share the same `flattenBookmarkTree` / `filterBookmarks` logic. If you change the filter behaviour, update both files.
-- The palette is a Shadow DOM tree attached to `document.body` — all styles live in `content.css` inside the shadow root, so host-page CSS never leaks in.
-- The service worker caches the flat bookmark list in memory and invalidates it on any bookmark change event.
+The palette runs as a `chrome-extension://` iframe injected by `content.js` into the current page. This gives full CSS and focus isolation from the host page without any Shadow DOM workarounds.
+
+`content.js` and `palette.js` communicate via `window.postMessage`:
+
+| Message | Direction | Meaning |
+|---|---|---|
+| `QBROW_READY` | palette → content | iframe finished loading |
+| `QBROW_INIT` | content → palette | sends the current page URL |
+| `QBROW_CLOSE` | palette → content | user dismissed the palette |
+
+The background service worker caches the flat bookmark list in memory and invalidates it on any bookmark change event. All bookmark reads and writes go through it via `chrome.runtime.sendMessage`.
 
 ---
 
