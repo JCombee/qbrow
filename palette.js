@@ -15,6 +15,7 @@
     { title: '/save',        desc: 'Save current page as a bookmark',  prefix: '/save '        },
     { title: '/tag add',     desc: 'Add a tag to a bookmark',          prefix: '/tag add '     },
     { title: '/tag remove',  desc: 'Remove a tag from a bookmark',     prefix: '/tag remove '  },
+    { title: '/settings',    desc: 'Open settings',                    action: 'settings'      },
   ];
 
   const input = document.getElementById('qbrow-input');
@@ -106,6 +107,7 @@
       if (item.id) li.dataset.id = item.id;
       if (item.folderName) li.dataset.name = item.folderName;
       if (item.prefix) li.dataset.prefix = item.prefix;
+      if (item.action) li.dataset.action = item.action;
 
       if (item.kind === 'save') li.classList.add('qbrow-save-item');
       if (item.kind === 'folder') li.classList.add('qbrow-folder-item');
@@ -164,6 +166,12 @@
     const titleText = li.querySelector('.qbrow-item-title')?.textContent ?? '';
 
     if (kind === 'command') {
+      const action = li.dataset.action;
+      if (action === 'settings') {
+        chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' });
+        close();
+        return;
+      }
       const prefix = li.dataset.prefix;
       if (prefix) {
         input.value = prefix;

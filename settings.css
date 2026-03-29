@@ -1,0 +1,138 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  display: flex;
+  height: 100vh;
+  background: #11111b;
+  color: #cdd6f4;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+
+#qbrow-nav {
+  width: 200px;
+  flex-shrink: 0;
+  background: #1e1e2e;
+  border-right: 1px solid #313244;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+}
+
+#qbrow-nav-logo {
+  padding: 0 16px 20px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #cba6f7;
+  letter-spacing: 0.05em;
+}
+
+.qbrow-nav-link {
+  display: block;
+  padding: 9px 12px;
+  margin: 0 8px;
+  color: #a6adc8;
+  text-decoration: none;
+  font-size: 14px;
+  border-radius: 6px;
+}
+
+.qbrow-nav-link:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.qbrow-nav-link.active {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+/* ── Content area ────────────────────────────────────────────────────────── */
+
+#qbrow-content {
+  flex: 1;
+  padding: 32px 40px;
+  overflow-y: auto;
+}
+
+.qbrow-page {
+  max-width: 560px;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #cdd6f4;
+  margin-bottom: 24px;
+}
+
+/* ── Section card ────────────────────────────────────────────────────────── */
+
+.qbrow-section {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+h2 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6c7086;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
+}
+
+/* ── Shortcut row ────────────────────────────────────────────────────────── */
+
+.qbrow-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+kbd#current-shortcut {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 4px 10px;
+  color: #cdd6f4;
+  min-width: 80px;
+  text-align: center;
+}
+
+.qbrow-btn {
+  font-size: 13px;
+  padding: 5px 14px;
+  background: rgba(137, 180, 250, 0.1);
+  color: #89b4fa;
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.qbrow-btn:hover {
+  background: rgba(137, 180, 250, 0.2);
+}
+
+.qbrow-hint {
+  font-size: 12px;
+  color: #585b70;
+  line-height: 1.5;
+}

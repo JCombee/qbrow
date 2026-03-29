@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>qbrow</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <nav id="qbrow-nav">
+    <div id="qbrow-nav-logo">qbrow</div>
+    <a href="#settings" class="qbrow-nav-link active" data-page="settings">Settings</a>
+  </nav>
+  <main id="qbrow-content">
+    <div id="page-settings" class="qbrow-page">
+      <h1>Settings</h1>
+      <section class="qbrow-section">
+        <h2>Keyboard shortcut</h2>
+        <div class="qbrow-shortcut-row">
+          <kbd id="current-shortcut">Loading…</kbd>
+          <a id="change-shortcut" href="#" class="qbrow-btn">Change shortcut</a>
+        </div>
+        <p class="qbrow-hint">To change the shortcut, your browser's extension shortcuts page will open.</p>
+      </section>
+    </div>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

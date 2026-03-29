@@ -131,6 +131,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     chrome.tabs.update({ url: message.url }).catch(() => {});
   }
 
+  if (message.type === 'OPEN_SETTINGS') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
+  }
+
   if (message.type === 'SAVE_BOOKMARK') {
     (async () => {
       await chrome.bookmarks.create({ parentId: message.parentId, title: message.title, url: message.url });
