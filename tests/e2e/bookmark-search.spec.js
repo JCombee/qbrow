@@ -231,11 +231,11 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await frame().locator('#qbrow-input').pressSequentially('/tag playwright');
+    await frame().locator('#qbrow-input').pressSequentially('/tag add playwright');
     await waitForResults(1);
 
     const badgeText = await frame().locator('#qbrow-badge').textContent();
-    expect(badgeText).toBe('tag');
+    expect(badgeText).toBe('tag: add');
 
     const results = await getShadowResults();
     expect(results.length).toBeGreaterThan(0);
@@ -248,7 +248,7 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await frame().locator('#qbrow-input').pressSequentially('/tag playwright');
+    await frame().locator('#qbrow-input').pressSequentially('/tag add playwright');
     await waitForResults(1);
 
     await pressEnterInPalette();
@@ -296,7 +296,7 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    await frame().locator('#qbrow-input').pressSequentially('/tag playwright');
+    await frame().locator('#qbrow-input').pressSequentially('/tag add playwright');
     await waitForResults(1);
 
     await pressEnterInPalette();
@@ -394,6 +394,56 @@ test.describe('qbrow bookmark palette', () => {
     }, uniqueName);
 
     await closePalette();
+  });
+
+  test('/tag remove shows existing tags and removes the selected one', async () => {
+    // Seed a known tag
+    await sw.evaluate(async () => {
+      const result = await chrome.storage.local.get('tags');
+      const tags = result.tags ?? {};
+      const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
+      if (bm) { tags[bm.id] = ['removable']; await chrome.storage.local.set({ tags }); }
+      const b = await chrome.bookmarks.create({ title: '__qbrow_cache_bust__', url: 'https://example.com' });
+      await chrome.bookmarks.remove(b.id);
+    });
+
+    await page.goto('https://example.com');
+    await openPalette();
+
+    await frame().locator('#qbrow-input').pressSequentially('/tag remove playwright');
+    await waitForResults(1);
+
+    const badgeText = await frame().locator('#qbrow-badge').textContent();
+    expect(badgeText).toBe('tag: remove');
+
+    // Select the Playwright bookmark — should transition to tag-remove-select
+    await pressEnterInPalette();
+
+    const placeholder = await frame().locator('#qbrow-input').getAttribute('placeholder');
+    expect(placeholder).toBe('Select tag to remove…');
+
+    // The existing tag should appear as an item
+    await waitForResults(1);
+    const items = await paletteFrame().evaluate(() =>
+      Array.from(document.querySelectorAll('.qbrow-item')).map((el) => ({
+        kind: el.dataset.kind,
+        title: el.querySelector('.qbrow-item-title')?.textContent,
+      })),
+    );
+    expect(items[0].title).toBe('removable');
+
+    // Select it to remove
+    await pressEnterInPalette();
+    await expect(page.locator('#qbrow-host')).not.toBeAttached();
+
+    // Verify the tag is gone
+    const tagGone = await sw.evaluate(async () => {
+      const result = await chrome.storage.local.get('tags');
+      const tags = result.tags ?? {};
+      const [bm] = await chrome.bookmarks.search('__qbrow_test__ Playwright Docs');
+      return !(tags[bm?.id] ?? []).includes('removable');
+    });
+    expect(tagGone).toBe(true);
   });
 
   test('/save saves the bookmark and it appears in search results', async () => {

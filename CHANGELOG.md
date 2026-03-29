@@ -13,7 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Command palette overlay triggered by `Ctrl+Shift+E` (`Cmd+Shift+E` on Mac)
 - Bookmark search — case-insensitive substring match on title, URL, and tags
 - `/save <name>` command — save the current page as a bookmark by navigating the folder tree; typing filters subfolders, `Escape` steps back up, non-existing folders are created on the fly
-- `/tag <query>` command — search bookmarks and assign a custom text tag
+- `/tag add <query>` command — search bookmarks and assign a custom text tag
+- `/tag remove <query>` command — search bookmarks and remove an existing tag
 - Tag-based search — bookmarks surface when searching by their tag labels
 - Tag chips displayed on result rows
 - Arrow key navigation with first result auto-selected

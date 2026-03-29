@@ -1,7 +1,8 @@
 (() => {
   let pageUrl = '';
-  let mode = 'search'; // 'search' | 'tag-pick' | 'tag-name' | 'save-location'
-  let tagTarget = null; // { id, title }
+  let mode = 'search'; // 'search' | 'tag-pick' | 'tag-name' | 'tag-remove-select' | 'save-location'
+  let tagAction = 'add'; // 'add' | 'remove'
+  let tagTarget = null; // { id, title, tags? }
   let saveName = '';
   let saveStack = []; // [{ id, title }]
   let debounceTimer = null;
@@ -119,13 +120,27 @@
         close();
       }
     } else if (mode === 'tag-pick') {
-      tagTarget = { id, title: titleText };
-      mode = 'tag-name';
-      setBadge('tag → ' + titleText);
-      input.value = '';
-      input.placeholder = 'Enter tag name…';
-      clearResults();
-      input.focus();
+      if (tagAction === 'add') {
+        tagTarget = { id, title: titleText };
+        mode = 'tag-name';
+        setBadge('tag → ' + titleText);
+        input.value = '';
+        input.placeholder = 'Enter tag name…';
+        clearResults();
+        input.focus();
+      } else {
+        const existingTags = [...li.querySelectorAll('.qbrow-tag')].map((el) => el.textContent);
+        tagTarget = { id, title: titleText, tags: existingTags };
+        mode = 'tag-remove-select';
+        setBadge('untag → ' + titleText);
+        input.value = '';
+        input.placeholder = 'Select tag to remove…';
+        renderItems(existingTags.map((t) => ({ kind: 'tag-option', title: t })));
+        input.focus();
+      }
+    } else if (mode === 'tag-remove-select') {
+      chrome.runtime.sendMessage({ type: 'REMOVE_TAG', bookmarkId: tagTarget.id, tag: titleText });
+      close();
     } else if (mode === 'save-location') {
       if (kind === 'save') {
         const parentId = saveStack.length ? saveStack[saveStack.length - 1].id : null;
@@ -191,14 +206,15 @@
   input.addEventListener('input', (e) => {
     const val = e.target.value;
 
-    if (val.startsWith('/tag ')) {
-      if (mode !== 'tag-pick') {
+    if (val.startsWith('/tag add ')) {
+      if (mode !== 'tag-pick' || tagAction !== 'add') {
         mode = 'tag-pick';
-        setBadge('tag');
+        tagAction = 'add';
+        setBadge('tag: add');
         input.placeholder = 'Search bookmarks to tag…';
       }
       clearTimeout(debounceTimer);
-      const q = val.slice(5);
+      const q = val.slice(9);
       debounceTimer = setTimeout(() => {
         if (!q.trim()) { clearResults(); return; }
         chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (response) => {
@@ -208,13 +224,44 @@
       return;
     }
 
-    if (mode === 'tag-pick' && !val.startsWith('/tag')) {
+    if (val.startsWith('/tag remove ')) {
+      if (mode !== 'tag-pick' || tagAction !== 'remove') {
+        mode = 'tag-pick';
+        tagAction = 'remove';
+        setBadge('tag: remove');
+        input.placeholder = 'Search bookmarks to untag…';
+      }
+      clearTimeout(debounceTimer);
+      const q = val.slice(12);
+      debounceTimer = setTimeout(() => {
+        if (!q.trim()) { clearResults(); return; }
+        chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (response) => {
+          renderItems(response?.results ?? []);
+        });
+      }, 100);
+      return;
+    }
+
+    // Still typing /tag or /tag add/remove without trailing space — wait
+    if (val.startsWith('/tag')) {
+      if (mode === 'tag-pick') {
+        mode = 'search';
+        tagAction = 'add';
+        setBadge(null);
+        input.placeholder = 'Search bookmarks…';
+        clearResults();
+      }
+      return;
+    }
+
+    if (mode === 'tag-pick') {
       mode = 'search';
+      tagAction = 'add';
       setBadge(null);
       input.placeholder = 'Search bookmarks…';
     }
 
-    if (mode === 'tag-name') return;
+    if (mode === 'tag-name' || mode === 'tag-remove-select') return;
 
     if (mode === 'save-location') {
       clearTimeout(debounceTimer);
@@ -248,8 +295,9 @@
         input.value = '';
         input.placeholder = 'Search bookmarks…';
         clearResults();
-      } else if (mode === 'tag-name') {
+      } else if (mode === 'tag-name' || mode === 'tag-remove-select') {
         mode = 'search';
+        tagAction = 'add';
         tagTarget = null;
         setBadge(null);
         input.value = '';

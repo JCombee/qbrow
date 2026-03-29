@@ -115,4 +115,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       cachedBookmarks = null;
     })();
   }
+
+  if (message.type === 'REMOVE_TAG') {
+    (async () => {
+      const result = await chrome.storage.local.get('tags');
+      const tags = result.tags ?? {};
+      const bookmarkTags = tags[message.bookmarkId] ?? [];
+      const idx = bookmarkTags.indexOf(message.tag);
+      if (idx !== -1) {
+        bookmarkTags.splice(idx, 1);
+        if (bookmarkTags.length === 0) {
+          delete tags[message.bookmarkId];
+        } else {
+          tags[message.bookmarkId] = bookmarkTags;
+        }
+        await chrome.storage.local.set({ tags });
+      }
+      cachedBookmarks = null;
+    })();
+  }
 });
