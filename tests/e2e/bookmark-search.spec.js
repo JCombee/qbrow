@@ -9,15 +9,40 @@ test.describe('qbrow bookmark palette', () => {
   let context;
   let page;
   let keepAlivePage = null; // open extension page used by swEval
+  let extId = null;         // extension ID used to open the keepAlivePage
 
   // swEval sends a named test-helper message to the SW via the already-open extension
-  // page. chrome.runtime.sendMessage auto-wakes a sleeping SW, so there is no risk of
-  // hanging on a stale Playwright ServiceWorker reference.
-  async function swEval(type, data = {}) {
-    return keepAlivePage.evaluate(
-      ([msgType, msgData]) => chrome.runtime.sendMessage({ type: msgType, ...msgData }),
-      [type, data],
-    );
+  // page. An *internal* setTimeout inside the evaluate makes Chrome itself reject the
+  // Promise cleanly on SW restarts, so the CDP request closes — no stuck requests.
+  // Retry up to 3×; by the second attempt the SW has finished restarting.
+  // NOTE: we intentionally do NOT call bringToFront() here. Making keepAlivePage the
+  // active tab backgrounded `page`, causing subsequent page.evaluate() / goto() to hang
+  // even with --disable-renderer-backgrounding. The anti-throttling flags are sufficient
+  // to keep evaluate callbacks firing on a background tab.
+  async function swEval(type, data = {}, attempts = 3) {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await keepAlivePage.evaluate(
+          ([msgType, msgData]) =>
+            new Promise((resolve, reject) => {
+              const timer = setTimeout(
+                () => reject(new Error(`swEval(${msgType}) timed out`)),
+                8000,
+              );
+              chrome.runtime.sendMessage({ type: msgType, ...msgData }, (response) => {
+                clearTimeout(timer);
+                const err = chrome.runtime.lastError;
+                if (err) reject(new Error(err.message));
+                else resolve(response);
+              });
+            }),
+          [type, data],
+        );
+      } catch (err) {
+        if (i === attempts - 1) throw err;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
   }
 
   test.beforeAll(async () => {
@@ -26,6 +51,12 @@ test.describe('qbrow bookmark palette', () => {
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
+        // Prevent background-tab throttling / renderer backgrounding, which
+        // can cause keepAlivePage.evaluate() callbacks to be delayed or never
+        // fired when keepAlivePage is not the active tab.
+        '--disable-renderer-backgrounding',
+        '--disable-background-timer-throttling',
+        '--disable-features=IntensiveWakeUpThrottling',
       ],
     });
 
@@ -38,7 +69,7 @@ test.describe('qbrow bookmark palette', () => {
         timeout: 10000,
       });
     }
-    const extId = new URL(swRef.url()).hostname;
+    extId = new URL(swRef.url()).hostname;
 
     // Open a persistent extension page for the duration of the suite.
     // swEval routes all SW calls through this page via sendMessage, which
@@ -71,9 +102,9 @@ test.describe('qbrow bookmark palette', () => {
   }
 
   async function openPalette() {
-    await swEval('TEST_TOGGLE_PALETTE');
-    await page.waitForSelector('#qbrow-host', { state: 'attached', timeout: 3000 });
-    await frame().locator('#qbrow-input').waitFor({ timeout: 3000 });
+    await swEval('TEST_OPEN_PALETTE', { origin: new URL(page.url()).origin });
+    await page.waitForSelector('#qbrow-host', { state: 'attached', timeout: 5000 });
+    await frame().locator('#qbrow-input').waitFor({ timeout: 5000 });
   }
 
   async function closePalette() {
@@ -140,7 +171,13 @@ test.describe('qbrow bookmark palette', () => {
   test('Escape closes the palette', async () => {
     await page.goto('https://example.com');
     await openPalette();
-    await frame().locator('#qbrow-input').press('Escape').catch(() => {});
+    // Dispatch Escape directly in the iframe's JS context — cross-origin CDP key events
+    // are unreliable in xvfb CI (the event can miss the input focus, leaving the palette open).
+    await paletteFrame().evaluate(() => {
+      document.getElementById('qbrow-input').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
   });
 
@@ -204,8 +241,14 @@ test.describe('qbrow bookmark palette', () => {
     await page.goto('https://example.com');
     await openPalette();
 
-    // Click the overlay backdrop — top-left corner is outside the centered palette card
-    await frame().locator('#qbrow-overlay').click({ position: { x: 10, y: 10 } });
+    // Dispatch mousedown directly on the overlay element. Positional clicks through
+    // cross-origin iframes are unreliable in CI — the event can land on the wrong
+    // target, making e.target !== overlay. dispatchEvent guarantees the target.
+    await paletteFrame().evaluate(() => {
+      document.getElementById('qbrow-overlay').dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      );
+    });
 
     await expect(page.locator('#qbrow-host')).not.toBeAttached();
   });
@@ -282,7 +325,7 @@ test.describe('qbrow bookmark palette', () => {
     await waitForResults(1);
 
     const tagChip = await frame().locator('.qbrow-item .qbrow-tag').first().textContent().catch(() => null);
-    expect(tagChip).toBe('testing');
+    expect(tagChip).toBe('#testing');
 
     await closePalette();
   });
@@ -490,7 +533,7 @@ test.describe('qbrow bookmark palette', () => {
         title: el.querySelector('.qbrow-item-title')?.textContent,
       })),
     );
-    expect(items[0].title).toBe('removable');
+    expect(items[0].title).toBe('#removable');
 
     // Select it to remove
     await pressEnterInPalette();

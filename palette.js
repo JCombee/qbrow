@@ -139,7 +139,7 @@
         for (const tag of item.tags) {
           const chip = document.createElement('span');
           chip.className = 'qbrow-tag';
-          chip.textContent = tag;
+          chip.textContent = '#' + tag;
           tagsDiv.appendChild(chip);
         }
         li.appendChild(tagsDiv);
@@ -206,8 +206,10 @@
         input.focus();
       }
     } else if (mode === 'tag-remove-select') {
-      chrome.runtime.sendMessage({ type: 'REMOVE_TAG', bookmarkId: tagTarget.id, tag: titleText });
-      close();
+      chrome.runtime.sendMessage({ type: 'REMOVE_TAG', bookmarkId: tagTarget.id, tag: titleText.replace(/^#/, '') }, () => {
+        void chrome.runtime.lastError;
+        close();
+      });
     } else if (mode === 'save-location') {
       if (kind === 'save') {
         const parentId = saveStack.length ? saveStack[saveStack.length - 1].id : null;
@@ -404,8 +406,10 @@
       if (mode === 'tag-name') {
         const tag = input.value.trim();
         if (tag && tagTarget) {
-          chrome.runtime.sendMessage({ type: 'TAG', bookmarkId: tagTarget.id, tag });
-          close();
+          chrome.runtime.sendMessage({ type: 'TAG', bookmarkId: tagTarget.id, tag }, () => {
+            void chrome.runtime.lastError;
+            close();
+          });
         }
         return;
       }

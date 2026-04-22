@@ -95,7 +95,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 // Handle messages from content script
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── E2E test helpers ──────────────────────────────────────────────────────
   // These handlers are only called from the Playwright test suite.
   // Using explicit message types instead of eval avoids the extension CSP
@@ -230,6 +230,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (message.type === 'TEST_OPEN_PALETTE') {
+    // Injects content.js if needed, then toggles the palette on the target tab.
+    (async () => {
+      const [tab] = await chrome.tabs.query({ url: message.origin + '/*' });
+      if (!tab?.id) { sendResponse({ ok: false }); return; }
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' });
+      } catch {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }).catch(() => {});
+        await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE' }).catch(() => {});
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
   // ── end E2E test helpers ───────────────────────────────────────────────────
 
   if (message.type === 'SEARCH') {
@@ -264,7 +280,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'OPEN') {
-    chrome.tabs.update({ url: message.url }).catch(() => {});
+    chrome.tabs.update(sender.tab.id, { url: message.url }).catch(() => {});
   }
 
   if (message.type === 'OPEN_SETTINGS') {
@@ -290,7 +306,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         await chrome.storage.local.set({ tags });
       }
       cachedBookmarks = null;
+      sendResponse({ ok: true });
     })();
+    return true;
   }
 
   if (message.type === 'REMOVE_TAG') {
@@ -309,6 +327,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         await chrome.storage.local.set({ tags });
       }
       cachedBookmarks = null;
+      sendResponse({ ok: true });
     })();
+    return true;
   }
 });
